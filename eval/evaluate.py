@@ -100,12 +100,9 @@ def run_evaluation(
         print("Warning: Index is empty. Building index before evaluation...")
         pipeline.build_index()
 
-    example_evaluations: list[ExampleEvaluation] = []
-    for index, example in enumerate(examples):
-        print(f"Evaluating [{index + 1}/{len(examples)}]: {example['question'][:70]}")
-        example_evaluations.append(evaluate_example(pipeline, example))
+    example_evaluations = collect_evaluations(pipeline, examples)
 
-    summary = _summarize_run(example_evaluations)
+    summary = summarize_run(example_evaluations)
     calibration = confidence_calibration(
         [(evaluation.confidence, 1.0 if evaluation.is_correct else 0.0) for evaluation in example_evaluations]
     )
@@ -140,7 +137,16 @@ def run_evaluation(
     return payload
 
 
-def _summarize_run(example_evaluations: list[ExampleEvaluation]) -> dict[str, float]:
+def collect_evaluations(pipeline: RAGPipeline, examples: list[dict]) -> list[ExampleEvaluation]:
+    """Evaluate each golden example against a pipeline configuration."""
+    evaluations: list[ExampleEvaluation] = []
+    for index, example in enumerate(examples):
+        print(f"Evaluating [{index + 1}/{len(examples)}]: {example['question'][:70]}")
+        evaluations.append(evaluate_example(pipeline, example))
+    return evaluations
+
+
+def summarize_run(example_evaluations: list[ExampleEvaluation]) -> dict[str, float]:
     metric_names = [
         "retrieval_accuracy",
         "citation_coverage",

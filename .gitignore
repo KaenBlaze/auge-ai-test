@@ -39,6 +39,7 @@ logs/
 
 # Evaluation artifacts
 eval/results.json
+eval/experiment_results.json
 
 .cache/
 models/
