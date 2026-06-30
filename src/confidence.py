@@ -67,6 +67,68 @@ class ConfidenceScorer:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    def assess_retrieval_evidence(self, chunks: list[RetrievedChunk]) -> ConfidenceResult | None:
+        """Return an abstention result when retrieval evidence is insufficient to answer."""
+        if not chunks:
+            return abstention_result(0.0, "no_retrieved_chunks")
+
+        supporting_chunks = [
+            chunk
+            for chunk in chunks
+            if chunk.retrieval_score >= self.settings.similarity_threshold
+        ]
+        if not supporting_chunks:
+            return abstention_result(
+                0.0,
+                "no_chunk_passes_similarity_threshold",
+                signals={"supporting_chunks": 0.0},
+            )
+
+        top_retrieval = max(chunk.retrieval_score for chunk in chunks)
+        top_rerank = max((chunk.rerank_score or 0.0) for chunk in chunks)
+        supporting_ratio = min(
+            len(supporting_chunks) / max(self.settings.min_supporting_chunks, 1),
+            1.0,
+        )
+        fragment_agreement = _fragment_agreement(chunks)
+        signals = {
+            "top_retrieval": round(top_retrieval, 4),
+            "top_rerank": round(top_rerank, 4),
+            "supporting_chunks": round(supporting_ratio, 4),
+            "fragment_agreement": round(fragment_agreement, 4),
+            "citation_support": 0.0,
+        }
+
+        if top_retrieval < self.settings.min_retrieval_score:
+            return abstention_result(
+                top_retrieval,
+                f"weak_top_retrieval_score_{top_retrieval:.2f}",
+                signals=signals,
+            )
+
+        if top_rerank < self.settings.min_rerank_score:
+            return abstention_result(
+                top_rerank,
+                f"weak_top_rerank_score_{top_rerank:.2f}",
+                signals=signals,
+            )
+
+        if len(supporting_chunks) < self.settings.min_supporting_chunks:
+            return abstention_result(
+                _weighted_confidence(signals),
+                "insufficient_supporting_chunks",
+                signals=signals,
+            )
+
+        if fragment_agreement < self.settings.min_fragment_agreement:
+            return abstention_result(
+                _weighted_confidence(signals),
+                "low_fragment_agreement",
+                signals=signals,
+            )
+
+        return None
+
     def score(
         self,
         query: str,

@@ -29,23 +29,23 @@ def main() -> int:
         return 1
 
     result = pipeline.ask(args.question)
-    output = {
-        "question": result.question,
-        "answer": result.answer,
-        "abstained": result.abstained,
-        "confidence": result.confidence.score,
-        "citations": [
-            {"source": c.source, "chunk_id": c.chunk_id, "score": c.score}
-            for c in result.citations
-        ],
-    }
+    output = result.to_dict()
 
     if args.json:
         print(json.dumps(output, indent=2))
     else:
-        print(f"\nQ: {result.question}\n")
-        print(f"A: {result.answer}\n")
-        print(f"Confidence: {result.confidence.score:.3f}")
+        print(f"\nQ: {output['question']}\n")
+        print(f"A: {output['answer']}\n")
+        print(
+            f"Confidence: {output['confidence']:.3f}  "
+            f"Abstained: {output['abstained']}  "
+            f"Reason: {output['reason']}"
+        )
+        if output["citations"]:
+            print("\nCitations:")
+            for index, citation in enumerate(output["citations"], 1):
+                print(f"  [{index}] {citation['document']} ({citation['source_id']})")
+                print(f"      {citation['fragment'][:200]}")
 
     return 0
 

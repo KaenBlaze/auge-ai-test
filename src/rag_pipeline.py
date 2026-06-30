@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.chunking import chunk_records
-from src.confidence import ConfidenceScorer, ConfidenceResult, abstention_result
+from src.confidence import ConfidenceResult, ConfidenceScorer, abstention_result
 from src.config import Settings, get_settings
 from src.data_loader import load_document_records
 from src.embeddings import EmbeddingModel
-from src.generator import GenerationResult, Generator
+from src.generator import ABSTENTION_PHRASE, Generator
 from src.reranker import create_reranker
 from src.retriever import Retriever, RetrievedChunk
 from src.vector_store import VectorStore
@@ -19,10 +20,21 @@ from src.vector_store import VectorStore
 class Citation:
     """A source citation attached to an answer."""
 
-    source: str
-    chunk_id: str
-    excerpt: str
-    score: float
+    document: str
+    source_id: str
+    fragment: str
+
+    @property
+    def source(self) -> str:
+        """Backward-compatible alias used by evaluation metrics."""
+        return self.document
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "document": self.document,
+            "source_id": self.source_id,
+            "fragment": self.fragment,
+        }
 
 
 @dataclass
@@ -33,8 +45,23 @@ class RAGResponse:
     answer: str
     citations: list[Citation]
     confidence: ConfidenceResult
-    retrieved_chunks: list[RetrievedChunk] = field(repr=False)
-    abstained: bool = False
+    abstained: bool
+    retrieved_chunks: list[RetrievedChunk] = field(repr=False, default_factory=list)
+
+    @property
+    def reason(self) -> str:
+        return self.confidence.reason
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the canonical pipeline response schema."""
+        return {
+            "question": self.question,
+            "answer": self.answer,
+            "citations": [citation.to_dict() for citation in self.citations],
+            "confidence": self.confidence.confidence,
+            "abstained": self.abstained,
+            "reason": self.confidence.reason,
+        }
 
 
 class RAGPipeline:
@@ -64,51 +91,82 @@ class RAGPipeline:
         if not chunks:
             return 0
 
-        texts = [c.text for c in chunks]
+        texts = [chunk.text for chunk in chunks]
         embeddings = self.embedding_model.embed_texts(texts)
         return self.vector_store.add_chunks(chunks, embeddings)
 
     def ask(self, question: str) -> RAGResponse:
-        """Answer a question with citations, confidence, and optional abstention."""
+        """Run the full RAG pipeline for a question."""
+        question = question.strip()
+        if not question:
+            confidence = abstention_result(0.0, "empty_question")
+            return self._abstain_response(question, confidence, [])
+
+        # 1. Retrieve candidate chunks
         retrieved = self.retriever.retrieve(question)
+
+        # 2. Rerank chunks
         reranked = self.reranker.rerank(question, retrieved)
 
-        if not reranked:
-            confidence = abstention_result(0.0, "no_relevant_chunks")
-            return RAGResponse(
-                question=question,
-                answer="I don't know based on the provided corpus.",
-                citations=[],
-                confidence=confidence,
-                retrieved_chunks=[],
-                abstained=True,
-            )
+        # 3. Decide if retrieval evidence is sufficient before generation
+        retrieval_abstention = self.confidence_scorer.assess_retrieval_evidence(reranked)
+        if retrieval_abstention is not None:
+            return self._abstain_response(question, retrieval_abstention, reranked)
 
+        # 4. Generate answer from evidence
         generation = self.generator.generate(question, reranked)
+
+        # 5. Score answer support and decide final abstention
         confidence = self.confidence_scorer.score(question, generation.answer, reranked)
+        abstained = confidence.abstained
+        answer = ABSTENTION_PHRASE if abstained else generation.answer
 
-        abstained = confidence.should_abstain
-        answer = (
-            "I don't know based on the provided corpus."
-            if abstained
-            else generation.answer
-        )
-
-        citations = [
-            Citation(
-                source=c.source,
-                chunk_id=c.id,
-                excerpt=c.text[:200] + ("..." if len(c.text) > 200 else ""),
-                score=c.score,
-            )
-            for c in reranked
-        ]
-
+        # 6. Return answer with citations, confidence, abstention, and reason
+        citations = _build_citations(reranked, include_fragments=not abstained)
         return RAGResponse(
             question=question,
             answer=answer,
             citations=citations,
             confidence=confidence,
-            retrieved_chunks=reranked,
             abstained=abstained,
+            retrieved_chunks=reranked,
         )
+
+    def _abstain_response(
+        self,
+        question: str,
+        confidence: ConfidenceResult,
+        chunks: list[RetrievedChunk],
+    ) -> RAGResponse:
+        return RAGResponse(
+            question=question,
+            answer=ABSTENTION_PHRASE,
+            citations=[],
+            confidence=confidence,
+            abstained=True,
+            retrieved_chunks=chunks,
+        )
+
+
+def _build_citations(
+    chunks: list[RetrievedChunk],
+    include_fragments: bool = True,
+) -> list[Citation]:
+    """Build deduplicated citations from retrieved chunks."""
+    citations: list[Citation] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for chunk in chunks:
+        fragment = chunk.fragment if include_fragments else ""
+        key = (chunk.document, chunk.source_id, fragment)
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append(
+            Citation(
+                document=chunk.document,
+                source_id=chunk.source_id,
+                fragment=fragment,
+            )
+        )
+    return citations

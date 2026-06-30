@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -37,10 +36,9 @@ class QuestionRequest(BaseModel):
 
 
 class CitationResponse(BaseModel):
-    source: str
-    chunk_id: str
-    excerpt: str
-    score: float
+    document: str
+    source_id: str
+    fragment: str
 
 
 class AnswerResponse(BaseModel):
@@ -50,7 +48,6 @@ class AnswerResponse(BaseModel):
     confidence: float
     abstained: bool
     reason: str
-    confidence_reasons: list[str]
 
 
 class HealthResponse(BaseModel):
@@ -82,23 +79,8 @@ def ask(request: QuestionRequest) -> AnswerResponse:
         )
 
     result = pipeline.ask(request.question)
-    return AnswerResponse(
-        question=result.question,
-        answer=result.answer,
-        citations=[
-            CitationResponse(
-                source=c.source,
-                chunk_id=c.chunk_id,
-                excerpt=c.excerpt,
-                score=c.score,
-            )
-            for c in result.citations
-        ],
-        confidence=result.confidence.confidence,
-        abstained=result.abstained,
-        reason=result.confidence.reason,
-        confidence_reasons=result.confidence.reasons,
-    )
+    payload = result.to_dict()
+    return AnswerResponse(**payload)
 
 
 def main() -> None:

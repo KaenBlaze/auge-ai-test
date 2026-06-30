@@ -12,6 +12,26 @@ from src.data_loader import load_document_records, summarize_loaded_data
 from src.rag_pipeline import RAGPipeline
 
 
+def _print_result(result, as_json: bool) -> int:
+    output = result.to_dict()
+    if as_json:
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"\nQ: {output['question']}\n")
+        print(f"A: {output['answer']}\n")
+        print(
+            f"Confidence: {output['confidence']:.3f}  "
+            f"Abstained: {output['abstained']}  "
+            f"Reason: {output['reason']}"
+        )
+        if output["citations"]:
+            print("\nCitations:")
+            for index, citation in enumerate(output["citations"], 1):
+                print(f"  [{index}] {citation['document']} ({citation['source_id']})")
+                print(f"      {citation['fragment'][:200]}")
+    return 0
+
+
 def build_index_cmd(args: argparse.Namespace) -> int:
     """Build the vector index from documents."""
     pipeline = RAGPipeline()
@@ -28,37 +48,7 @@ def ask_cmd(args: argparse.Namespace) -> int:
         return 1
 
     result = pipeline.ask(args.question)
-    output = {
-        "question": result.question,
-        "answer": result.answer,
-        "abstained": result.abstained,
-        "confidence": result.confidence.confidence,
-        "reason": result.confidence.reason,
-        "confidence_reasons": result.confidence.reasons,
-        "citations": [
-            {
-                "source": c.source,
-                "chunk_id": c.chunk_id,
-                "score": c.score,
-                "excerpt": c.excerpt,
-            }
-            for c in result.citations
-        ],
-    }
-
-    if args.json:
-        print(json.dumps(output, indent=2))
-    else:
-        print(f"\nQ: {result.question}\n")
-        print(f"A: {result.answer}\n")
-        print(f"Confidence: {result.confidence.score:.3f}  Abstained: {result.abstained}")
-        if result.citations:
-            print("\nCitations:")
-            for i, c in enumerate(result.citations, 1):
-                print(f"  [{i}] {c.source} (score={c.score:.3f})")
-                print(f"      {c.excerpt}")
-
-    return 0
+    return _print_result(result, args.json)
 
 
 def inspect_data_cmd(args: argparse.Namespace) -> int:
