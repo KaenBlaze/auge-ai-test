@@ -37,6 +37,8 @@ Thumbs.db
 *.log
 logs/
 
-# Model caches (sentence-transformers, huggingface)
+# Evaluation artifacts
+eval/results.json
+
 .cache/
 models/

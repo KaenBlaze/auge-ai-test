@@ -19,7 +19,12 @@ from src.data_loader import (
     record_to_document,
     summarize_loaded_data,
 )
-from eval.metrics import abstention_accuracy, citation_precision, exact_match
+from eval.metrics import (
+    citation_correctness,
+    correct_abstention,
+    exact_match,
+    false_abstention,
+)
 
 
 @pytest.fixture
@@ -140,10 +145,12 @@ def test_exact_match():
     assert exact_match("Hello", "World") == 0.0
 
 
-def test_citation_precision():
-    assert citation_precision(["a.md", "b.md"], ["a.md"]) == 0.5
+def test_citation_correctness_metric():
+    citations = [{"document": "a.md", "source_id": "a", "fragment": "text"}]
+    assert citation_correctness("See [source: a.md]", citations, ["a.md"]) == 1.0
+    assert citation_correctness("See [source: b.md]", [], ["a.md"]) == 0.0
 
 
-def test_abstention_accuracy():
-    assert abstention_accuracy(True, True) == 1.0
-    assert abstention_accuracy(False, True) == 0.0
+def test_abstention_rate_metrics():
+    assert correct_abstention(True, False) == 1.0
+    assert false_abstention(True, True) == 1.0
