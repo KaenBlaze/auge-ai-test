@@ -10,7 +10,7 @@ from src.config import Settings, get_settings
 from src.data_loader import load_document_records
 from src.embeddings import EmbeddingModel
 from src.generator import GenerationResult, Generator
-from src.reranker import NoOpReranker, Reranker
+from src.reranker import create_reranker
 from src.retriever import Retriever, RetrievedChunk
 from src.vector_store import VectorStore
 
@@ -48,11 +48,7 @@ class RAGPipeline:
         )
         self.vector_store = VectorStore(self.settings.faiss_index_dir)
         self.retriever = Retriever(self.vector_store, self.embedding_model, self.settings)
-        self.reranker = (
-            Reranker(self.settings.reranker_model, self.settings)
-            if self.settings.use_reranker
-            else NoOpReranker()
-        )
+        self.reranker = create_reranker(self.settings)
         self.generator = Generator(self.settings)
         self.confidence_scorer = ConfidenceScorer(self.settings)
 

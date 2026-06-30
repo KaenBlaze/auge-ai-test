@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     top_k_rerank: int = 5
     similarity_threshold: float = 0.3
 
-    # Reranker
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # Reranker (local cross-encoder; BGE preferred, ms-marco fallback)
+    reranker_model: str = "BAAI/bge-reranker-base"
     use_reranker: bool = True
 
     # Generator (Ollama)
