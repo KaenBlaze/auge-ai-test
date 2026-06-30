@@ -6,8 +6,9 @@ import argparse
 import json
 import sys
 
+from src.chunking import preview_chunks
 from src.config import get_settings
-from src.data_loader import summarize_loaded_data
+from src.data_loader import load_document_records, summarize_loaded_data
 from src.rag_pipeline import RAGPipeline
 
 
@@ -74,6 +75,36 @@ def inspect_data_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def preview_chunks_cmd(args: argparse.Namespace) -> int:
+    """Preview the first chunks with metadata."""
+    settings = get_settings()
+    documents_dir = args.documents_dir or settings.documents_dir
+    records = load_document_records(documents_dir)
+    chunks = preview_chunks(
+        records,
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        limit=args.limit,
+    )
+
+    if args.json:
+        print(json.dumps(chunks, indent=2))
+        return 0
+
+    print(f"Previewing {len(chunks)} chunk(s)\n")
+    for index, chunk in enumerate(chunks, start=1):
+        metadata = chunk["metadata"]
+        print(f"--- Chunk {index} ---")
+        print(f"chunk_id:   {chunk['chunk_id']}")
+        print(f"document:   {chunk['document']}")
+        print(f"source_id:  {chunk['source_id']}")
+        print(f"section:    {metadata.get('section_heading')}")
+        print(f"lines:      {metadata.get('line_start')}–{metadata.get('line_end')}")
+        print(f"tokens:     {metadata.get('token_count')}")
+        print(f"text:\n{chunk['text'][:400]}{'...' if len(chunk['text']) > 400 else ''}\n")
+    return 0
+
+
 def serve_cmd(args: argparse.Namespace) -> int:
     """Start the API server."""
     from src.api import main as serve_main
@@ -115,6 +146,12 @@ def main(argv: list[str] | None = None) -> int:
     inspect_parser.add_argument("--golden-seed", type=str, default=None)
     inspect_parser.add_argument("--historical-results", type=str, default=None)
     inspect_parser.set_defaults(func=inspect_data_cmd)
+
+    preview_parser = subparsers.add_parser("preview-chunks", help="Preview first chunks with metadata")
+    preview_parser.add_argument("--documents-dir", type=str, default=None)
+    preview_parser.add_argument("--limit", type=int, default=5)
+    preview_parser.add_argument("--json", action="store_true")
+    preview_parser.set_defaults(func=preview_chunks_cmd)
 
     args = parser.parse_args(argv)
     return args.func(args)

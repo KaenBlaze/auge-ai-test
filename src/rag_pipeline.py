@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.chunking import chunk_documents
+from src.chunking import chunk_records
 from src.confidence import ConfidenceScorer, ConfidenceResult
 from src.config import Settings, get_settings
-from src.data_loader import Document, load_documents
+from src.data_loader import load_document_records
 from src.embeddings import EmbeddingModel
 from src.generator import GenerationResult, Generator
 from src.reranker import NoOpReranker, Reranker
@@ -59,9 +59,9 @@ class RAGPipeline:
     def build_index(self, documents_dir=None) -> int:
         """Load documents, chunk, embed, and index. Returns chunk count."""
         docs_dir = documents_dir or self.settings.documents_dir
-        documents = load_documents(docs_dir)
-        chunks = chunk_documents(
-            documents,
+        records = load_document_records(docs_dir)
+        chunks = chunk_records(
+            records,
             chunk_size=self.settings.chunk_size,
             chunk_overlap=self.settings.chunk_overlap,
         )

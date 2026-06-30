@@ -39,14 +39,14 @@ class VectorStore:
 
         collection = self._get_collection()
         collection.upsert(
-            ids=[c.id for c in chunks],
+            ids=[c.chunk_id for c in chunks],
             embeddings=embeddings,
             documents=[c.text for c in chunks],
             metadatas=[
                 {
-                    "document_id": c.document_id,
-                    "source": c.source,
-                    "chunk_index": c.chunk_index,
+                    "document": c.document,
+                    "source_id": c.source_id,
+                    "source": c.document,
                     **{k: str(v) for k, v in c.metadata.items()},
                 }
                 for c in chunks

@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_device: str = "cpu"
 
-    # Chunking
-    chunk_size: int = 512
-    chunk_overlap: int = 64
+    # Chunking (token counts; see src/chunking.py for rationale)
+    chunk_size: int = 640
+    chunk_overlap: int = 100
 
     # Retrieval
     top_k_retrieve: int = 10

@@ -48,7 +48,7 @@ class Retriever:
             RetrievedChunk(
                 id=hit["id"],
                 text=hit["text"],
-                source=hit["metadata"].get("source", "unknown"),
+                source=hit["metadata"].get("document", hit["metadata"].get("source", "unknown")),
                 score=hit["score"],
                 metadata=hit["metadata"],
             )

@@ -26,21 +26,22 @@ from eval.metrics import abstention_accuracy, citation_precision, exact_match
 def sample_document() -> Document:
     return Document(
         id="test_doc",
-        text="A" * 600,
+        text="A" * 2500,
         source="test.txt",
+        metadata={"source_id": "test", "section_heading": None, "paragraph_index": 0},
     )
 
 
 def test_settings_defaults():
     settings = Settings()
-    assert settings.chunk_size == 512
+    assert settings.chunk_size == 640
     assert settings.use_reranker is True
 
 
 def test_chunk_documents_overlap(sample_document):
     chunks = chunk_documents([sample_document], chunk_size=200, chunk_overlap=50)
     assert len(chunks) > 1
-    assert chunks[0].document_id == "test_doc"
+    assert chunks[0].source_id == "test"
 
 
 def test_load_markdown_records_with_metadata(tmp_path):
