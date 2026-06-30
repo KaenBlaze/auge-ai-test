@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,18 +22,8 @@ from eval.metrics import (
     rouge_l,
 )
 from src.config import get_settings
+from src.data_loader import load_golden_seed
 from src.rag_pipeline import RAGPipeline
-
-
-def load_golden_seed(path: Path) -> list[dict]:
-    """Load evaluation examples from JSONL."""
-    examples = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                examples.append(json.loads(line))
-    return examples
 
 
 def evaluate_example(pipeline: RAGPipeline, example: dict) -> list[MetricResult]:
