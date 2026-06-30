@@ -18,6 +18,7 @@ htmlcov/
 .ruff_cache/
 
 # Vector store & generated artifacts
+storage/faiss_index/
 data/vector_store/
 *.index
 *.faiss

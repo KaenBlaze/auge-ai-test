@@ -19,12 +19,12 @@ class Settings(BaseSettings):
     # Paths
     data_dir: Path = Field(default=Path("./data"))
     documents_dir: Path = Field(default=Path("./data/documents"))
-    vector_store_dir: Path = Field(default=Path("./data/vector_store"))
+    faiss_index_dir: Path = Field(default=Path("./storage/faiss_index"))
     golden_seed_path: Path = Field(default=Path("./data/golden_seed.jsonl"))
     historical_results_path: Path = Field(default=Path("./data/historical_results.csv"))
 
-    # Embeddings
-    embedding_model: str = "all-MiniLM-L6-v2"
+    # Embeddings (local sentence-transformers; BGE preferred, MiniLM fallback)
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_device: str = "cpu"
 
     # Chunking (token counts; see src/chunking.py for rationale)

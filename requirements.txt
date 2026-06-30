@@ -9,7 +9,7 @@ tiktoken>=0.5.0
 
 # Embeddings & vector store (local)
 sentence-transformers>=2.2.0
-chromadb>=0.4.0
+faiss-cpu>=1.7.4
 numpy>=1.24.0
 
 # Reranking (local cross-encoder)

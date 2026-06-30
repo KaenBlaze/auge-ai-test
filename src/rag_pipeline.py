@@ -46,7 +46,7 @@ class RAGPipeline:
             self.settings.embedding_model,
             device=self.settings.embedding_device,
         )
-        self.vector_store = VectorStore(self.settings.vector_store_dir)
+        self.vector_store = VectorStore(self.settings.faiss_index_dir)
         self.retriever = Retriever(self.vector_store, self.embedding_model, self.settings)
         self.reranker = (
             Reranker(self.settings.reranker_model, self.settings)
