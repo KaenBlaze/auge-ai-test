@@ -1,0 +1,33 @@
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Data & chunking
+pandas>=2.0.0
+tiktoken>=0.5.0
+
+# Embeddings & vector store (local)
+sentence-transformers>=2.2.0
+chromadb>=0.4.0
+numpy>=1.24.0
+
+# Reranking (local cross-encoder)
+# sentence-transformers includes CrossEncoder support
+
+# Local LLM (choose one or both)
+ollama>=0.1.0
+# llama-cpp-python>=0.2.0  # uncomment for llama.cpp backend
+
+# API
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+
+# Evaluation
+scikit-learn>=1.3.0
+rouge-score>=0.1.2
+
+# Dev / test
+pytest>=7.4.0
+pytest-cov>=4.1.0
+httpx>=0.24.0

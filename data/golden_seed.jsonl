@@ -1,0 +1,3 @@
+{"id": "eval_001", "question": "What is the primary purpose of the AUGE monitoring system?", "expected_answer": "real-time anomaly detection in industrial sensor data", "expected_sources": ["auge_overview.md"], "should_abstain": false}
+{"id": "eval_002", "question": "What was the revenue in fiscal year 2099?", "expected_answer": "", "expected_sources": [], "should_abstain": true}
+{"id": "eval_003", "question": "Which sensors does the AUGE platform support?", "expected_answer": "temperature pressure vibration", "expected_sources": ["sensor_catalog.md"], "should_abstain": false}
