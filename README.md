@@ -92,6 +92,49 @@ Optional backends (set in `.env`):
 
 ---
 
+## Docker
+
+Run the full stack (Ollama + RAG API) with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+First startup downloads:
+- Hugging Face embedding/reranker models (cached in a Docker volume)
+- Ollama LLM `qwen2.5:7b` (cached in `ollama_data` volume)
+- Builds the FAISS index if `storage/faiss_index/` is empty
+
+API: `http://localhost:8000`  
+Ollama: `http://localhost:11434`
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Ask a question
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the electoral silence period before election day?"}'
+```
+
+Useful commands:
+
+```bash
+docker compose up --build -d          # detached
+docker compose logs -f api            # follow API logs
+docker compose run --rm api build-index
+docker compose run --rm api pull-model
+docker compose down                   # stop services
+docker compose down -v                # stop and remove volumes
+```
+
+**GPU (optional):** Uncomment the `deploy.resources` GPU block under `ollama` in `docker-compose.yml` if NVIDIA Container Toolkit is installed.
+
+**Environment:** The `api` service sets `OLLAMA_BASE_URL=http://ollama:11434`. For local (non-Docker) runs, use `http://localhost:11434`.
+
+---
+
 ## Build the Index
 
 ```bash

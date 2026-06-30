@@ -1,0 +1,52 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: auge-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    # Uncomment for NVIDIA GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  api:
+    build: .
+    container_name: auge-rag-api
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_BACKEND: ollama
+      MODEL_NAME: qwen2.5:7b
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_PULL_MODEL: "true"
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      EMBEDDING_DEVICE: cpu
+      FAISS_INDEX_DIR: ./storage/faiss_index
+      DOCUMENTS_DIR: ./data/documents
+      HISTORICAL_RESULTS_PATH: ./data/historical_results.csv
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - faiss_index:/app/storage/faiss_index
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+volumes:
+  ollama_data:
+  huggingface_cache:
+  faiss_index:
