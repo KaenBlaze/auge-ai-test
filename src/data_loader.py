@@ -53,6 +53,15 @@ class Document:
 
 def load_document_records(documents_dir: Path) -> list[DocumentRecord]:
     """Load Markdown files and return normalized paragraph-level records."""
+    return load_corpus_records(documents_dir)
+
+
+def load_corpus_records(
+    documents_dir: Path,
+    *,
+    csv_paths: list[Path] | None = None,
+) -> list[DocumentRecord]:
+    """Load Markdown documents and optional CSV tables as paragraph-level records."""
     documents_dir = Path(documents_dir)
     if not documents_dir.exists():
         raise FileNotFoundError(f"Documents directory not found: {documents_dir}")
@@ -66,6 +75,65 @@ def load_document_records(documents_dir: Path) -> list[DocumentRecord]:
             records.extend(_load_markdown_file(path, documents_dir))
         elif suffix == ".txt":
             records.extend(_load_plaintext_file(path, documents_dir))
+
+    for csv_path in csv_paths or []:
+        records.extend(load_csv_corpus_records(csv_path))
+
+    return records
+
+
+def load_csv_corpus_records(path: Path) -> list[DocumentRecord]:
+    """Load a CSV file as schema and row-level records for retrieval."""
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    df = pd.read_csv(path)
+    filename = path.name
+    source_id = path.stem
+    records: list[DocumentRecord] = []
+
+    schema_lines = [f"- {column}: synthetic regional metric" for column in df.columns]
+    records.append(
+        DocumentRecord(
+            document=filename,
+            source_id=source_id,
+            text=(
+                f"CSV dataset `{filename}` contains annual regional metrics.\n"
+                f"Columns:\n" + "\n".join(schema_lines)
+            ),
+            metadata={
+                "filename": filename,
+                "section_heading": "Schema",
+                "paragraph_index": 0,
+                "record_type": "csv_schema",
+            },
+        )
+    )
+
+    for row_index, row in df.iterrows():
+        parts = [f"{column}={row[column]}" for column in df.columns]
+        text = (
+            f"historical_results.csv row {int(row_index) + 1}: "
+            + ", ".join(parts)
+        )
+        records.append(
+            DocumentRecord(
+                document=filename,
+                source_id=source_id,
+                text=text,
+                metadata={
+                    "filename": filename,
+                    "section_heading": f"Row {int(row_index) + 1}",
+                    "paragraph_index": int(row_index) + 1,
+                    "record_type": "csv_row",
+                    "row_index": int(row_index),
+                    "year": row.get("year"),
+                    "region": row.get("region"),
+                },
+            )
+        )
+
     return records
 
 
@@ -99,10 +167,25 @@ def load_golden_seed(path: Path) -> list[dict[str, Any]]:
             if not stripped:
                 continue
             try:
-                examples.append(json.loads(stripped))
+                examples.append(normalize_golden_example(json.loads(stripped)))
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSON on line {line_no} of {path}") from exc
     return examples
+
+
+def normalize_golden_example(example: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Spanish or English golden-set fields into one evaluation schema."""
+    answerable = bool(example["respondible"]) if "respondible" in example else not bool(
+        example.get("should_abstain", False)
+    )
+    return {
+        **example,
+        "question": example.get("question") or example.get("pregunta", ""),
+        "expected_answer": example.get("expected_answer") or example.get("respuesta_referencia", ""),
+        "expected_sources": example.get("expected_sources") or example.get("fuentes", []),
+        "should_abstain": not answerable,
+        "answerable": answerable,
+    }
 
 
 def summarize_loaded_data(

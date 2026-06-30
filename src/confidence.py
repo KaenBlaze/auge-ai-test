@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from src.config import Settings, get_settings
@@ -12,6 +14,32 @@ from src.retriever import RetrievedChunk
 
 CITATION_RE = re.compile(r"\[source:\s*([^\]]+)\]", re.IGNORECASE)
 WORD_RE = re.compile(r"[a-z0-9]+")
+STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+    }
+)
 
 ABSTENTION_PHRASES = (
     "don't know based on the provided corpus",
@@ -23,10 +51,10 @@ ABSTENTION_PHRASES = (
 )
 
 SIGNAL_WEIGHTS = {
-    "top_retrieval": 0.25,
+    "top_retrieval": 0.30,
     "top_rerank": 0.25,
     "supporting_chunks": 0.15,
-    "fragment_agreement": 0.15,
+    "fragment_agreement": 0.10,
     "citation_support": 0.20,
 }
 
@@ -85,17 +113,15 @@ class ConfidenceScorer:
             )
 
         top_retrieval = max(chunk.retrieval_score for chunk in chunks)
-        top_rerank = max((chunk.rerank_score or 0.0) for chunk in chunks)
-        supporting_ratio = min(
-            len(supporting_chunks) / max(self.settings.min_supporting_chunks, 1),
-            1.0,
-        )
-        fragment_agreement = _fragment_agreement(chunks)
+        top_rerank = _top_rerank_score(chunks)
         signals = {
             "top_retrieval": round(top_retrieval, 4),
             "top_rerank": round(top_rerank, 4),
-            "supporting_chunks": round(supporting_ratio, 4),
-            "fragment_agreement": round(fragment_agreement, 4),
+            "supporting_chunks": round(
+                min(len(supporting_chunks) / max(self.settings.min_supporting_chunks, 1), 1.0),
+                4,
+            ),
+            "fragment_agreement": round(_fragment_agreement(chunks), 4),
             "citation_support": 0.0,
         }
 
@@ -117,13 +143,6 @@ class ConfidenceScorer:
             return abstention_result(
                 _weighted_confidence(signals),
                 "insufficient_supporting_chunks",
-                signals=signals,
-            )
-
-        if fragment_agreement < self.settings.min_fragment_agreement:
-            return abstention_result(
-                _weighted_confidence(signals),
-                "low_fragment_agreement",
                 signals=signals,
             )
 
@@ -154,19 +173,21 @@ class ConfidenceScorer:
             )
 
         top_retrieval = max(chunk.retrieval_score for chunk in chunks)
-        top_rerank = max((chunk.rerank_score or 0.0) for chunk in chunks)
-        supporting_ratio = min(
-            len(supporting_chunks) / max(self.settings.min_supporting_chunks, 1),
-            1.0,
+        top_rerank = _top_rerank_score(chunks)
+        citation_support, has_citations = _citation_support(
+            answer,
+            chunks,
+            min_grounding_overlap=self.settings.min_citation_support,
         )
-        fragment_agreement = _fragment_agreement(chunks)
-        citation_support, has_citations = _citation_support(answer, chunks)
 
         signals = {
             "top_retrieval": round(top_retrieval, 4),
             "top_rerank": round(top_rerank, 4),
-            "supporting_chunks": round(supporting_ratio, 4),
-            "fragment_agreement": round(fragment_agreement, 4),
+            "supporting_chunks": round(
+                min(len(supporting_chunks) / max(self.settings.min_supporting_chunks, 1), 1.0),
+                4,
+            ),
+            "fragment_agreement": round(_fragment_agreement(chunks), 4),
             "citation_support": round(citation_support, 4),
         }
 
@@ -177,7 +198,6 @@ class ConfidenceScorer:
             top_rerank=top_rerank,
             has_citations=has_citations,
             citation_support=citation_support,
-            signals=signals,
         )
         if hard_reason:
             confidence = _weighted_confidence(signals)
@@ -217,7 +237,6 @@ class ConfidenceScorer:
         top_rerank: float,
         has_citations: bool,
         citation_support: float,
-        signals: dict[str, float],
     ) -> str | None:
         if top_retrieval < self.settings.min_retrieval_score:
             return f"weak_top_retrieval_score_{top_retrieval:.2f}"
@@ -236,9 +255,6 @@ class ConfidenceScorer:
 
         if has_citations and citation_support < self.settings.min_citation_support:
             return "answer_not_supported_by_citations"
-
-        if signals["fragment_agreement"] < self.settings.min_fragment_agreement:
-            return "low_fragment_agreement"
 
         return None
 
@@ -272,6 +288,24 @@ def _build_reason_lines(signals: dict[str, float], primary_reason: str) -> list[
     return lines
 
 
+def _top_rerank_score(chunks: list[RetrievedChunk]) -> float:
+    """Return a stable top rerank score using raw cross-encoder logits when available."""
+    scores: list[float] = []
+    for chunk in chunks:
+        raw = chunk.metadata.get("raw_rerank_score")
+        if raw is not None:
+            scores.append(_sigmoid(float(raw)))
+        elif chunk.rerank_score is not None:
+            scores.append(float(chunk.rerank_score))
+        else:
+            scores.append(float(chunk.retrieval_score))
+    return max(scores) if scores else 0.0
+
+
+def _sigmoid(value: float) -> float:
+    return 1.0 / (1.0 + math.exp(-value))
+
+
 def _is_abstention_answer(answer: str) -> bool:
     answer_lower = answer.lower()
     if ABSTENTION_PHRASE.lower() in answer_lower:
@@ -280,43 +314,92 @@ def _is_abstention_answer(answer: str) -> bool:
 
 
 def _tokenize(text: str) -> set[str]:
-    return set(WORD_RE.findall(text.lower()))
+    return {token for token in WORD_RE.findall(text.lower()) if token not in STOPWORDS}
 
 
 def _fragment_agreement(chunks: list[RetrievedChunk]) -> float:
-    """Estimate agreement between retrieved fragments via lexical overlap."""
+    """Measure how well each retrieved chunk aligns with the best-scoring chunk.
+
+    Diverse sections from the same document (e.g. Protocols vs Sensors) are expected
+    in RAG and should not be treated as conflicting evidence.
+    """
     if not chunks:
         return 0.0
     if len(chunks) == 1:
         return 1.0
 
-    word_sets = [_tokenize(chunk.fragment) for chunk in chunks]
+    best_chunk = max(chunks, key=lambda chunk: chunk.score)
+    best_tokens = _tokenize(best_chunk.fragment)
+    if not best_tokens:
+        return 0.0
+
     overlaps: list[float] = []
-    for i in range(len(word_sets)):
-        for j in range(i + 1, len(word_sets)):
-            union = word_sets[i] | word_sets[j]
-            if not union:
-                continue
-            overlaps.append(len(word_sets[i] & word_sets[j]) / len(union))
-    return sum(overlaps) / len(overlaps) if overlaps else 0.0
+    for chunk in chunks:
+        if chunk.chunk_id == best_chunk.chunk_id:
+            overlaps.append(1.0)
+            continue
+        chunk_tokens = _tokenize(chunk.fragment)
+        union = best_tokens | chunk_tokens
+        if not union:
+            continue
+        overlaps.append(len(best_tokens & chunk_tokens) / len(union))
+
+    same_document = len({chunk.document for chunk in chunks}) == 1
+    if same_document:
+        return max(sum(overlaps) / len(overlaps), 0.5)
+
+    return sum(overlaps) / len(overlaps)
 
 
-def _citation_support(answer: str, chunks: list[RetrievedChunk]) -> tuple[float, bool]:
-    """Measure whether cited sources support the answer content."""
-    cited_sources = [match.strip() for match in CITATION_RE.findall(answer)]
-    if not cited_sources:
+def _citation_support(
+    answer: str,
+    chunks: list[RetrievedChunk],
+    *,
+    min_grounding_overlap: float = 0.20,
+) -> tuple[float, bool]:
+    """Measure whether the answer is supported by inline citations or retrieved fragments."""
+    if _is_abstention_answer(answer):
         return 0.0, False
 
-    chunk_by_document = {chunk.document: chunk for chunk in chunks}
-    valid_citations = [source for source in cited_sources if source in chunk_by_document]
-    citation_precision = len(valid_citations) / len(cited_sources)
+    cited_sources = [match.strip() for match in CITATION_RE.findall(answer)]
+    if cited_sources:
+        chunk_by_document = {chunk.document: chunk for chunk in chunks}
+        valid_citations = [source for source in cited_sources if _source_in_chunks(source, chunks)]
+        citation_precision = len(valid_citations) / len(cited_sources)
+        cited_text = " ".join(
+            chunk_by_document.get(source, next(iter(chunk_by_document.values()))).fragment
+            for source in valid_citations
+            if source in chunk_by_document
+        )
+        answer_tokens = _tokenize(answer)
+        if not answer_tokens:
+            return citation_precision, True
+        supported_tokens = answer_tokens & _tokenize(cited_text)
+        content_support = len(supported_tokens) / len(answer_tokens)
+        combined = 0.6 * citation_precision + 0.4 * content_support
+        return combined, True
 
-    cited_text = " ".join(chunk_by_document[source].fragment for source in valid_citations)
+    if not chunks:
+        return 0.0, False
+
+    support_text = " ".join(chunk.fragment for chunk in chunks)
     answer_tokens = _tokenize(answer)
     if not answer_tokens:
-        return citation_precision, True
+        return 0.0, False
+    support_tokens = _tokenize(support_text)
+    shared_tokens = answer_tokens & support_tokens
+    overlap = len(shared_tokens) / len(answer_tokens)
+    grounded = len(shared_tokens) >= 2 and overlap >= min_grounding_overlap
+    return overlap, grounded
 
-    supported_tokens = answer_tokens & _tokenize(cited_text)
-    content_support = len(supported_tokens) / len(answer_tokens)
-    combined = 0.6 * citation_precision + 0.4 * content_support
-    return combined, True
+
+def _source_in_chunks(source: str, chunks: list[RetrievedChunk]) -> bool:
+    source_lower = source.strip().lower()
+    for chunk in chunks:
+        if chunk.document.lower() == source_lower:
+            return True
+        if chunk.source_id.lower() == source_lower:
+            return True
+        if Path(source_lower).stem == Path(chunk.document).stem:
+            return True
+    return False

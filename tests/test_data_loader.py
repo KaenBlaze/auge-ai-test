@@ -12,6 +12,7 @@ from src.chunking import chunk_documents
 from src.config import Settings
 from src.data_loader import (
     Document,
+    load_csv_corpus_records,
     load_document_records,
     load_documents,
     load_golden_seed,
@@ -128,6 +129,34 @@ def test_load_historical_results_with_rows(tmp_path):
     assert df.loc[0, "n_examples"] == 3
 
 
+def test_load_golden_seed_normalizes_spanish_fields(tmp_path):
+    seed_path = tmp_path / "golden_seed.jsonl"
+    seed_path.write_text(
+        '{"id":"q001","pregunta":"Q?","respuesta_referencia":"A","fuentes":["LEY-2021-014"],'
+        '"respondible":true}\n',
+        encoding="utf-8",
+    )
+    examples = load_golden_seed(seed_path)
+    assert examples[0]["question"] == "Q?"
+    assert examples[0]["expected_answer"] == "A"
+    assert examples[0]["expected_sources"] == ["LEY-2021-014"]
+    assert examples[0]["answerable"] is True
+
+
+def test_load_csv_corpus_records(tmp_path):
+    csv_path = tmp_path / "historical_results.csv"
+    csv_path.write_text(
+        "year,region,turnout_pct\n2025,West,49\n",
+        encoding="utf-8",
+    )
+    records = load_csv_corpus_records(csv_path)
+    assert len(records) == 2
+    assert records[0].metadata["record_type"] == "csv_schema"
+    assert records[1].metadata["record_type"] == "csv_row"
+    assert "2025" in records[1].text
+    assert "West" in records[1].text
+
+
 def test_summarize_loaded_data_project_corpus():
     root = Path(__file__).resolve().parent.parent
     summary = summarize_loaded_data(
@@ -135,9 +164,10 @@ def test_summarize_loaded_data_project_corpus():
         golden_seed_path=root / "data" / "golden_seed.jsonl",
         historical_results_path=root / "data" / "historical_results.csv",
     )
-    assert summary["documents"] >= 2
-    assert summary["records"] >= 2
-    assert summary["golden_seed_examples"] == 3
+    assert summary["documents"] == 9
+    assert summary["records"] >= 9
+    assert summary["golden_seed_examples"] == 6
+    assert summary["historical_result_runs"] == 20
 
 
 def test_exact_match():
@@ -149,6 +179,14 @@ def test_citation_correctness_metric():
     citations = [{"document": "a.md", "source_id": "a", "fragment": "text"}]
     assert citation_correctness("See [source: a.md]", citations, ["a.md"]) == 1.0
     assert citation_correctness("See [source: b.md]", [], ["a.md"]) == 0.0
+    assert (
+        citation_correctness(
+            "See [source: LEY-2021-014_Electoral_Code.md]",
+            [{"document": "LEY-2021-014_Electoral_Code.md", "source_id": "LEY-2021-014", "fragment": ""}],
+            ["LEY-2021-014 Art. 31"],
+        )
+        == 1.0
+    )
 
 
 def test_abstention_rate_metrics():

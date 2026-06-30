@@ -237,16 +237,28 @@ def _extract_cited_sources(answer: str, citations: list[dict[str, str]]) -> set[
 def _source_matches_any(expected: str, cited_sources: set[str]) -> bool:
     expected_norm = expected.strip().lower()
     expected_stem = Path(expected_norm).stem
+    expected_prefix = _source_id_prefix(expected_norm)
     for cited in cited_sources:
         cited_norm = cited.strip().lower()
         cited_stem = Path(cited_norm).stem
+        cited_prefix = _source_id_prefix(cited_norm)
         if cited_norm == expected_norm:
             return True
         if cited_stem == expected_stem:
             return True
+        if expected_prefix and cited_prefix == expected_prefix:
+            return True
         if cited_norm.endswith(expected_norm) or expected_norm.endswith(cited_norm):
             return True
     return False
+
+
+def _source_id_prefix(source: str) -> str:
+    """Extract a stable document ID prefix such as LEY-2021-014 from filenames or citations."""
+    token = source.strip().lower().replace(".md", "").split()[0]
+    if "_" in token:
+        return token.split("_", 1)[0]
+    return token
 
 
 def _is_abstention_answer(answer: str) -> bool:

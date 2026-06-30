@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.chunking import chunk_records
 from src.config import get_settings
-from src.data_loader import load_document_records
+from src.data_loader import load_corpus_records
 from src.embeddings import EmbeddingModel
 from src.vector_store import VectorStore
 
@@ -17,7 +17,10 @@ def main() -> int:
     settings = get_settings()
 
     print(f"1. Loading documents from: {settings.documents_dir}")
-    records = load_document_records(settings.documents_dir)
+    records = load_corpus_records(
+        settings.documents_dir,
+        csv_paths=[settings.historical_results_path],
+    )
     if not records:
         print("No documents found.", file=sys.stderr)
         return 1

@@ -18,9 +18,10 @@ def _chunk(
     rerank_score: float | None = None,
     document: str = "sensor_catalog.md",
     fragment: str = "temperature pressure vibration sensors",
+    chunk_id: str = "chunk_1",
 ) -> RetrievalResult:
     return RetrievalResult(
-        chunk_id="chunk_1",
+        chunk_id=chunk_id,
         document=document,
         source_id="sensor_catalog",
         fragment=fragment,
@@ -64,8 +65,15 @@ def test_abstains_on_weak_rerank_score():
 
 def test_abstains_when_answer_missing_citations():
     scorer = ConfidenceScorer(Settings(require_citations=True, similarity_threshold=0.2))
-    chunks = [_chunk(retrieval_score=0.9, rerank_score=0.9)]
-    result = scorer.score("Which sensors?", "Temperature sensors are supported.", chunks)
+    chunks = [
+        _chunk(
+            retrieval_score=0.9,
+            rerank_score=0.9,
+            fragment="The AUGE platform supports temperature, pressure, and vibration sensors.",
+        )
+    ]
+    # Answer with no content overlap to retrieved fragments should still require citations.
+    result = scorer.score("Which sensors?", "Quantum encryption enabled worldwide.", chunks)
     assert result.abstained
     assert result.reason == "answer_missing_citations"
 
@@ -137,3 +145,36 @@ def test_fragment_agreement_single_chunk_defaults_high():
     chunks = [_chunk(retrieval_score=0.8, rerank_score=0.8)]
     result = scorer.score("q", "supported answer text", chunks)
     assert result.signals["fragment_agreement"] == 1.0
+
+
+def test_diverse_sections_same_document_do_not_abstain_before_generation():
+    """Regression: multi-section docs should not trigger false pre-generation abstention."""
+    scorer = ConfidenceScorer()
+    chunks = [
+        _chunk(
+            retrieval_score=0.75,
+            rerank_score=0.8,
+            chunk_id="chunk_1",
+            fragment="## Protocols\nModbus RTU and OPC UA are supported.",
+        ),
+        _chunk(
+            retrieval_score=0.72,
+            rerank_score=0.7,
+            chunk_id="chunk_2",
+            fragment="## Temperature Sensors\nPT100 and thermocouples.",
+        ),
+        _chunk(
+            retrieval_score=0.70,
+            rerank_score=0.65,
+            chunk_id="chunk_3",
+            fragment="## Pressure Sensors\n4-20mA transmitters.",
+        ),
+    ]
+
+    pre = scorer.assess_retrieval_evidence(chunks)
+    assert pre is None
+    assert scorer.score(
+        "Which sensors?",
+        "Temperature and pressure sensors are supported.",
+        chunks,
+    ).abstained is False

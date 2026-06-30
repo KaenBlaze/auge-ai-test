@@ -8,7 +8,7 @@ from typing import Any
 from src.chunking import chunk_records
 from src.confidence import ConfidenceResult, ConfidenceScorer, abstention_result
 from src.config import Settings, get_settings
-from src.data_loader import load_document_records
+from src.data_loader import load_corpus_records
 from src.embeddings import EmbeddingModel
 from src.generator import ABSTENTION_PHRASE, Generator
 from src.reranker import create_reranker
@@ -82,7 +82,10 @@ class RAGPipeline:
     def build_index(self, documents_dir=None) -> int:
         """Load documents, chunk, embed, and index. Returns chunk count."""
         docs_dir = documents_dir or self.settings.documents_dir
-        records = load_document_records(docs_dir)
+        records = load_corpus_records(
+            docs_dir,
+            csv_paths=[self.settings.historical_results_path],
+        )
         chunks = chunk_records(
             records,
             chunk_size=self.settings.chunk_size,
@@ -122,7 +125,7 @@ class RAGPipeline:
         answer = ABSTENTION_PHRASE if abstained else generation.answer
 
         # 6. Return answer with citations, confidence, abstention, and reason
-        citations = _build_citations(reranked, include_fragments=not abstained)
+        citations = _build_citations(reranked)
         return RAGResponse(
             question=question,
             answer=answer,
@@ -141,24 +144,20 @@ class RAGPipeline:
         return RAGResponse(
             question=question,
             answer=ABSTENTION_PHRASE,
-            citations=[],
+            citations=_build_citations(chunks),
             confidence=confidence,
             abstained=True,
             retrieved_chunks=chunks,
         )
 
 
-def _build_citations(
-    chunks: list[RetrievedChunk],
-    include_fragments: bool = True,
-) -> list[Citation]:
+def _build_citations(chunks: list[RetrievedChunk]) -> list[Citation]:
     """Build deduplicated citations from retrieved chunks."""
     citations: list[Citation] = []
     seen: set[tuple[str, str, str]] = set()
 
     for chunk in chunks:
-        fragment = chunk.fragment if include_fragments else ""
-        key = (chunk.document, chunk.source_id, fragment)
+        key = (chunk.document, chunk.source_id, chunk.fragment)
         if key in seen:
             continue
         seen.add(key)
@@ -166,7 +165,7 @@ def _build_citations(
             Citation(
                 document=chunk.document,
                 source_id=chunk.source_id,
-                fragment=fragment,
+                fragment=chunk.fragment,
             )
         )
     return citations

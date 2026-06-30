@@ -92,4 +92,5 @@ def test_abstains_before_generation_when_retrieval_weak(monkeypatch):
     generate.assert_not_called()
     assert result.abstained is True
     assert result.answer == ABSTENTION_PHRASE
-    assert result.citations == []
+    assert len(result.citations) == 1
+    assert result.citations[0].fragment == "weak"
