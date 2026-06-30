@@ -32,7 +32,8 @@ def ask_cmd(args: argparse.Namespace) -> int:
         "question": result.question,
         "answer": result.answer,
         "abstained": result.abstained,
-        "confidence": result.confidence.score,
+        "confidence": result.confidence.confidence,
+        "reason": result.confidence.reason,
         "confidence_reasons": result.confidence.reasons,
         "citations": [
             {

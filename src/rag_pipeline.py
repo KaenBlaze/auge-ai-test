@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.chunking import chunk_records
-from src.confidence import ConfidenceScorer, ConfidenceResult
+from src.confidence import ConfidenceScorer, ConfidenceResult, abstention_result
 from src.config import Settings, get_settings
 from src.data_loader import load_document_records
 from src.embeddings import EmbeddingModel
@@ -74,11 +74,7 @@ class RAGPipeline:
         reranked = self.reranker.rerank(question, retrieved)
 
         if not reranked:
-            confidence = ConfidenceResult(
-                score=0.0,
-                should_abstain=True,
-                reasons=["no_relevant_chunks"],
-            )
+            confidence = abstention_result(0.0, "no_relevant_chunks")
             return RAGResponse(
                 question=question,
                 answer="I don't know based on the provided corpus.",

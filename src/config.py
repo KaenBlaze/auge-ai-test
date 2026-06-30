@@ -61,7 +61,13 @@ class Settings(BaseSettings):
     transformers_torch_dtype: str = "auto"
 
     # Confidence / abstention
-    confidence_threshold: float = 0.5
+    confidence_threshold: float = 0.55
+    min_retrieval_score: float = 0.35
+    min_rerank_score: float = 0.40
+    min_supporting_chunks: int = 1
+    min_citation_support: float = 0.25
+    min_fragment_agreement: float = 0.10
+    require_citations: bool = True
     abstain_on_low_confidence: bool = True
 
     # API

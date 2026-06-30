@@ -49,6 +49,7 @@ class AnswerResponse(BaseModel):
     citations: list[CitationResponse]
     confidence: float
     abstained: bool
+    reason: str
     confidence_reasons: list[str]
 
 
@@ -93,8 +94,9 @@ def ask(request: QuestionRequest) -> AnswerResponse:
             )
             for c in result.citations
         ],
-        confidence=result.confidence.score,
+        confidence=result.confidence.confidence,
         abstained=result.abstained,
+        reason=result.confidence.reason,
         confidence_reasons=result.confidence.reasons,
     )
 
