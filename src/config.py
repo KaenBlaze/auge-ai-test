@@ -2,9 +2,12 @@
 
 from pathlib import Path
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ModelBackend = Literal["ollama", "vllm", "transformers"]
 
 
 class Settings(BaseSettings):
@@ -40,11 +43,22 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-base"
     use_reranker: bool = True
 
-    # Generator (Ollama)
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2"
+    # Generator (local open-weight models only)
+    model_backend: ModelBackend = "ollama"
+    model_name: str = "qwen2.5-7b"
     generator_temperature: float = 0.1
     generator_max_tokens: int = 512
+
+    # Ollama backend
+    ollama_base_url: str = "http://localhost:11434"
+
+    # vLLM OpenAI-compatible backend
+    vllm_base_url: str = "http://localhost:8000/v1"
+    vllm_api_key: str = "EMPTY"
+
+    # Hugging Face Transformers backend
+    transformers_device: str = "cpu"
+    transformers_torch_dtype: str = "auto"
 
     # Confidence / abstention
     confidence_threshold: float = 0.5

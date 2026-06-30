@@ -56,6 +56,7 @@ class ConfidenceScorer:
 
         # Abstention phrase detection
         abstention_phrases = [
+            "don't know based on the provided corpus",
             "don't have sufficient evidence",
             "do not have sufficient evidence",
             "cannot answer",

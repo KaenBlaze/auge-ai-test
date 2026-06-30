@@ -81,7 +81,7 @@ class RAGPipeline:
             )
             return RAGResponse(
                 question=question,
-                answer="I don't have sufficient evidence to answer this question.",
+                answer="I don't know based on the provided corpus.",
                 citations=[],
                 confidence=confidence,
                 retrieved_chunks=[],
@@ -93,7 +93,7 @@ class RAGPipeline:
 
         abstained = confidence.should_abstain
         answer = (
-            "I don't have sufficient evidence to answer this question."
+            "I don't know based on the provided corpus."
             if abstained
             else generation.answer
         )
