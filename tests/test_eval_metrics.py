@@ -80,6 +80,16 @@ def test_confidence_calibration_bins():
     assert 0.0 <= calibration["calibration_score"] <= 1.0
 
 
+def test_contains_answer_uses_token_overlap():
+    from eval.metrics import contains_answer
+
+    assert contains_answer(
+        "No, biometric data may not be stored in foreign cloud infrastructure.",
+        "Biometric data must remain inside Valdoria and may not be stored in foreign cloud infrastructure.",
+    )
+    assert not contains_answer("Quantum encryption enabled.", "biometric data foreign cloud")
+
+
 def test_groundedness_uses_citation_fragments():
     score = groundedness(
         "Temperature sensors are supported.",

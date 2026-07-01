@@ -7,12 +7,12 @@
 | Date | 2026-06-30 |
 | Embedding Model | `BAAI/bge-small-en-v1.5` (384-dim) |
 | Reranker | `BAAI/bge-reranker-base` |
-| LLM | `qwen2.5-7b` via Ollama (`MODEL_BACKEND=ollama`) |
+| LLM | `qwen2.5:7b` via Ollama (`MODEL_BACKEND=ollama`) |
 | Vector Store | FAISS `IndexFlatIP` at `storage/faiss_index/` |
-| Corpus | 2 Markdown documents → 10 paragraph records → 9 chunks |
-| Golden Examples | 3 (2 answerable, 1 unanswerable) |
-| Hardware | Linux x86_64, CPU-only inference |
-| Test Suite | 67 tests passing |
+| Corpus | 9 Valdoria documents + `historical_results.csv` → ~39 chunks |
+| Golden Set | 26 examples (`data/golden_set.jsonl`) — 20 answerable, 6 unanswerable |
+| Hardware | Linux x86_64, CPU embeddings; Ollama for generation |
+| Test Suite | 73 tests passing |
 
 ---
 
@@ -20,15 +20,16 @@
 
 The pipeline is a modular, local-only RAG stack:
 
-1. **Ingest** — Markdown files parsed into paragraph-level records with section headings, line numbers, and `source_id`.
-2. **Chunk** — Records merged within sections up to a tiktoken budget (640 tokens, 100 overlap), preserving headings in chunk text.
-3. **Embed & index** — BGE-small embeddings stored in a FAISS inner-product index (cosine on L2-normalized vectors) with a JSON metadata sidecar.
-4. **Retrieve** — Query embedded with BGE query prefix; top-k chunks returned with similarity scores.
-5. **Rerank** — Optional cross-encoder re-orders candidates before generation.
-6. **Generate** — Local LLM answers strictly from retrieved fragments with inline citations.
-7. **Score & abstain** — Multi-signal confidence decides whether to return the answer or `"I don't know based on the provided corpus."`
+1. **Ingest** — Markdown laws/policies/reports plus CSV rows indexed as searchable text.
+2. **Chunk** — Heading/paragraph-aware merging (640 tokens, 100 overlap).
+3. **Embed & index** — BGE-small embeddings in FAISS with JSON metadata sidecar.
+4. **Retrieve** — Dense top-k with similarity scores.
+5. **Rerank** — Optional cross-encoder re-ordering.
+6. **Tabular path** — Deterministic pandas answers for CSV aggregation questions.
+7. **Generate** — Local LLM with evidence-only prompt and inline citations.
+8. **Score & abstain** — Multi-signal confidence gates final output.
 
-Design goal: **verifiable answers** — every non-abstained response should be traceable to corpus fragments.
+Design goal: **verifiable answers** with honest abstention when evidence is missing.
 
 ---
 
@@ -36,86 +37,96 @@ Design goal: **verifiable answers** — every non-abstained response should be t
 
 **Approach:** Heading-aware, paragraph-aware merging with tiktoken sizing.
 
-- Records are grouped by `(document, section_heading)` so chunks never cross section boundaries.
-- Adjacent paragraphs within a section are merged until ~640 tokens (middle of 500–800 target).
-- Oversized paragraphs split on sentence boundaries, then token windows.
-- Each chunk is prefixed with `## {section_heading}` for self-contained retrieval context.
-- 100-token overlap carries context across chunk boundaries.
+- Records grouped by `(document, section_heading)` — chunks do not cross sections.
+- Adjacent paragraphs merged up to ~640 tokens (500–800 target range).
+- Oversized paragraphs split on sentence boundaries.
+- Each chunk prefixed with `## {section_heading}` for self-contained context.
+- 100-token overlap preserves continuity.
 
-**Why:** Blind fixed-character splitting breaks Markdown structure and separates headings from body text. Token-aware sizing aligns chunk boundaries with embedding model and LLM context limits while keeping citations localized.
+**Why:** Preserves legal section boundaries for localized citations. Token-aware sizing aligns with embedding and LLM context limits.
 
-**Tradeoff:** List-heavy or table-heavy documents may still split awkwardly; v2 should add table-aware chunking.
+**Tradeoff:** Tables in Markdown may split awkwardly; v2 should add table-aware chunking.
 
 ---
 
 ## Retrieval Strategy
 
-**Approach:** Dense retrieval only (bi-encoder embeddings → FAISS cosine search).
+**Approach:** Dense retrieval (bi-encoder → FAISS cosine search).
 
-- Default `top_k_retrieve=10`, filtered by `similarity_threshold=0.3`.
-- BGE query instruction prefix applied at embed time.
-- Retrieved chunks include `chunk_id`, `document`, `source_id`, `fragment`, `retrieval_score`.
+- Default `top_k_retrieve=10`, `similarity_threshold=0.3`.
+- BGE query instruction prefix at embed time.
+- Retrieved chunks include full traceability metadata.
 
-**Why:** Simple, fast to implement, strong on semantic paraphrase for a small technical corpus.
+**Measured:** `retrieval_accuracy` on golden set — see latest `eval/results.json`.
 
-**Tradeoff:** Misses exact keyword matches (error codes, SKUs). No BM25 hybrid yet.
+**Tradeoff:** No BM25 hybrid yet; exact keyword matches can be missed.
 
 ---
 
 ## Reranking Strategy
 
-**Approach:** Optional local cross-encoder (`BAAI/bge-reranker-base`, fallback `ms-marco-MiniLM-L-6-v2`).
+**Approach:** Local cross-encoder (`BAAI/bge-reranker-base`).
 
-- Reranks top-k retrieved chunks before generation and confidence scoring.
-- Scores normalized to [0, 1] within the batch.
-- `SimilarityFallbackReranker` used when cross-encoder unavailable.
+- Re-orders candidates before generation and confidence scoring.
+- Before/after experiment in `eval/experiment.py`.
 
-**Why:** Cross-encoders score query–passage pairs jointly, improving precision when bi-encoder retrieval returns plausible but wrong chunks.
+**Tradeoff:** Adds CPU latency; benefit is corpus-dependent.
 
-**Tradeoff:** Adds latency (~50–200 ms per query on CPU). Benefit is query-dependent.
+---
+
+## Tabular Query Handling
+
+**Approach:** `src/tabular_query.py` answers CSV aggregation questions deterministically with pandas.
+
+Supported patterns:
+- Lowest/highest metric by region and year (turnout, budgets, trust)
+- Region + year lookups (e.g., "North Region turnout in 2025")
+
+**Why:** Numeric answers should not be guessed by the LLM from raw row text. Code computes the value; LLM handles prose synthesis for document-based questions.
 
 ---
 
 ## Confidence and Abstention Logic
 
-Abstention is **not decorative** — it gates the final answer.
+Abstention gates the final answer — it is not decorative.
 
-**Pre-generation checks** (retrieval evidence only):
+**Pre-generation checks:**
 - No chunks retrieved
 - No chunk passes `similarity_threshold`
-- `top_retrieval` < `min_retrieval_score` (0.35)
-- `top_rerank` < `min_rerank_score` (0.40)
+- Weak top retrieval / rerank scores
 - Insufficient supporting chunks
-- Low fragment agreement
 
-**Post-generation checks** (answer + citations):
-- Model expresses uncertainty / abstention phrase
-- `REQUIRE_CITATIONS=true` but answer has no `[source: ...]` tags
-- Citation support below `min_citation_support` (0.25)
-- Weighted confidence below `confidence_threshold` (0.55)
+**Post-generation checks:**
+- Model expresses uncertainty
+- Citation support below threshold (with exceptions for valid inline citations and structured pipeline citations)
+- Weighted confidence below `confidence_threshold`
 
-**Weighted signals:** top retrieval (25%), top rerank (25%), supporting chunks (15%), fragment agreement (15%), citation support (20%).
+**Weighted signals:** top retrieval (30%), top rerank (25%), supporting chunks (15%), fragment agreement (10%), citation support (20%).
 
-When abstaining, the system returns: `"I don't know based on the provided corpus."` with `abstained=true` and a machine-readable `reason`.
+**Fragment agreement:** Soft signal only — diverse sections from the same document are expected and not treated as conflicting evidence.
+
+When abstaining: `"I don't know based on the provided corpus."` with `abstained=true`, reason code, and retrieved citations for audit.
 
 ---
 
 ## Evaluation Metrics
 
-Deterministic metrics implemented in `eval/metrics.py`:
-
 | Metric | Definition |
 |--------|------------|
 | `retrieval_accuracy` | Expected sources found in retrieved documents |
 | `citation_coverage` | Answerable examples include ≥1 citation |
-| `citation_correctness` | Cited `document`/`source_id` matches expected source |
+| `citation_correctness` | Cited sources match expected document IDs |
 | `groundedness` | Answer token overlap with cited fragments |
-| `hallucination` | Answered when unanswerable, or answerable without citations |
+| `hallucination` | Answered when should abstain, or without citations |
 | `correct_abstention_rate` | Abstained on unanswerable examples |
 | `false_abstention_rate` | Abstained on answerable examples |
-| `confidence_calibration` | Binned confidence vs empirical correctness (ECE) |
+| `confidence_calibration` | Binned confidence vs correctness (ECE) |
 
-Run: `python eval/evaluate.py --golden-set data/golden_seed.jsonl`
+Run:
+
+```bash
+python eval/evaluate.py --golden-set data/golden_set.jsonl
+```
 
 ---
 
@@ -123,13 +134,13 @@ Run: `python eval/evaluate.py --golden-set data/golden_seed.jsonl`
 
 <!-- EXPERIMENT_START -->
 
-**Run date:** 2026-06-30T16:25:47.663584+00:00
-**Golden set:** `data/golden_seed.jsonl` (3 examples)
+**Run date:** 2026-07-01T00:23:32.875381+00:00
+**Golden set:** `data/golden_set.jsonl` (26 examples)
 
 | Metric | Baseline | Reranked | Delta | % Change |
 |--------|----------|----------|-------|----------|
 | retrieval_accuracy | 1.0000 | 1.0000 | +0.0000 | +0.0% |
-| citation_correctness | 0.3333 | 0.3333 | +0.0000 | +0.0% |
+| citation_correctness | 0.7692 | 0.7692 | +0.0000 | +0.0% |
 | hallucination | 0.0000 | 0.0000 | +0.0000 | +0.0% |
 | correct_abstention_rate | 1.0000 | 1.0000 | +0.0000 | +0.0% |
 
@@ -140,15 +151,9 @@ Run: `python eval/evaluate.py --golden-set data/golden_seed.jsonl`
 
 ### Interpretation
 
-**Reranking did not improve measurable metrics on this run.** All four tracked metrics were unchanged.
-
-Plausible explanations:
-1. **Corpus is tiny** — bi-encoder retrieval already ranks the correct document first.
-2. **Bottleneck is generation/citations** — citation correctness (33%) is limited by LLM citation formatting, not chunk order.
-3. **Confidence gates dominate** — both conditions hit the same abstention decisions (`false_abstention_rate=100%` on answerable examples due to strict citation requirements).
-4. **Golden set too small** — 3 examples cannot show statistically meaningful reranker gains.
-
-Reranking remains valuable for larger, noisier corpora where dense retrieval returns semantically similar but factually wrong passages.
+Unchanged metrics: retrieval_accuracy, citation_correctness, hallucination, correct_abstention_rate.
+Baseline uses dense FAISS retrieval only (top-k by embedding similarity). The reranked condition adds a local cross-encoder that re-orders retrieved chunks before generation and confidence scoring.
+On this small golden set, reranking may show little gain when dense retrieval already places the correct document near the top, when the corpus is tiny, or when confidence thresholds and citation requirements dominate downstream abstention. Reranking helps most on ambiguous queries where lexical overlap misleads bi-encoder retrieval.
 
 Reproduce with:
 
@@ -158,16 +163,18 @@ python eval/experiment.py
 
 <!-- EXPERIMENT_END -->
 
+
+
 ---
 
 ## Limitations
 
-1. **Scale** — Demo corpus only; FAISS flat index does not scale to millions of chunks without IVF/HNSW.
-2. **Eval set size** — 3 golden examples; metrics are directional, not production-grade.
-3. **False abstention** — Strict citation and confidence thresholds cause the system to abstain on answerable questions when the LLM omits inline `[source: ...]` tags.
-4. **No entailment check** — Groundedness uses lexical overlap, not NLI/entailment models.
-5. **Single-machine** — No distributed indexing, caching, or async job queue.
-6. **LLM variance** — Answer quality depends on locally pulled model weights and Ollama version.
+1. **Corpus size** — Synthetic demo; not production scale.
+2. **Golden set** — 26 examples; extend further for production CI gates.
+3. **Calibration** — Confidence heuristics need threshold tuning on held-out data.
+4. **No entailment model** — Groundedness uses lexical overlap.
+5. **LLM variance** — Answer quality depends on Ollama model version.
+6. **Docker** — Requires host Docker daemon; nested dev containers may not run Compose.
 
 ---
 
@@ -175,16 +182,14 @@ python eval/experiment.py
 
 | Priority | Improvement |
 |----------|-------------|
-| High | Expand golden set to 50–100 examples with human labels |
-| High | Hybrid retrieval (BM25 + dense) for keyword-heavy queries |
-| High | Calibrate confidence thresholds on held-out eval set |
-| Medium | NLI-based groundedness check (local cross-encoder entailment) |
-| Medium | Structured citation output (JSON schema from LLM) |
-| Medium | GPU batching for embedding index builds |
-| Medium | FAISS IVF/HNSW for larger corpora |
+| High | Expand golden set to 50–100 with human review |
+| High | Hybrid BM25 + dense retrieval |
+| High | NLI-based groundedness check |
+| Medium | Structured JSON citation output from LLM |
+| Medium | SQL/pandas query router for all tabular questions |
+| Medium | GPU batching for index builds |
 | Low | Streaming `/ask` responses |
-| Low | Incremental index updates (no full rebuild) |
-| Low | PDF/HTML ingestion |
+| Low | Incremental index updates |
 
 ---
 
@@ -194,11 +199,11 @@ python eval/experiment.py
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-ollama pull qwen2.5-7b
+ollama pull qwen2.5:7b
 
 python scripts/build_index.py
-python scripts/run_question.py "Which sensors does the AUGE platform support?"
-python eval/evaluate.py --golden-set data/golden_seed.jsonl
-python eval/experiment.py
+python scripts/run_question.py "What is the electoral silence period before election day?"
+python eval/evaluate.py --golden-set data/golden_set.jsonl
+python eval/experiment.py --golden-set data/golden_set.jsonl
 pytest tests/ -q
 ```

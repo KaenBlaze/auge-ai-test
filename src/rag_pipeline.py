@@ -13,6 +13,7 @@ from src.embeddings import EmbeddingModel
 from src.generator import ABSTENTION_PHRASE, Generator
 from src.reranker import create_reranker
 from src.retriever import Retriever, RetrievedChunk
+from src.tabular_query import try_tabular_answer
 from src.vector_store import VectorStore
 
 
@@ -116,16 +117,51 @@ class RAGPipeline:
         if retrieval_abstention is not None:
             return self._abstain_response(question, retrieval_abstention, reranked)
 
+        # 3b. Deterministic tabular answers for CSV aggregation questions
+        tabular = try_tabular_answer(question, self.settings.historical_results_path)
+        if tabular is not None:
+            answer_text, fragment = tabular
+            citations = _build_citations(reranked)
+            csv_key = ("historical_results.csv", "historical_results", fragment)
+            if csv_key not in {(c.document, c.source_id, c.fragment) for c in citations}:
+                citations.insert(
+                    0,
+                    Citation(
+                        document="historical_results.csv",
+                        source_id="historical_results",
+                        fragment=fragment,
+                    ),
+                )
+            confidence = self.confidence_scorer.score(
+                question,
+                answer_text,
+                reranked,
+                structured_citations=True,
+            )
+            return RAGResponse(
+                question=question,
+                answer=answer_text,
+                citations=citations,
+                confidence=confidence,
+                abstained=False,
+                retrieved_chunks=reranked,
+            )
+
         # 4. Generate answer from evidence
         generation = self.generator.generate(question, reranked)
 
         # 5. Score answer support and decide final abstention
-        confidence = self.confidence_scorer.score(question, generation.answer, reranked)
+        citations = _build_citations(reranked)
+        confidence = self.confidence_scorer.score(
+            question,
+            generation.answer,
+            reranked,
+            structured_citations=bool(citations),
+        )
         abstained = confidence.abstained
         answer = ABSTENTION_PHRASE if abstained else generation.answer
 
         # 6. Return answer with citations, confidence, abstention, and reason
-        citations = _build_citations(reranked)
         return RAGResponse(
             question=question,
             answer=answer,

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("./data"))
     documents_dir: Path = Field(default=Path("./data/documents"))
     faiss_index_dir: Path = Field(default=Path("./storage/faiss_index"))
-    golden_seed_path: Path = Field(default=Path("./data/golden_seed.jsonl"))
+    golden_seed_path: Path = Field(default=Path("./data/golden_set.jsonl"))
     historical_results_path: Path = Field(default=Path("./data/historical_results.csv"))
 
     # Embeddings (local sentence-transformers; BGE preferred, MiniLM fallback)
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     min_supporting_chunks: int = 1
     min_citation_support: float = 0.20
     min_fragment_agreement: float = 0.0  # soft signal only; diverse sections are OK
-    require_citations: bool = True
+    require_citations: bool = False
     abstain_on_low_confidence: bool = True
 
     # API

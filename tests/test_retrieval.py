@@ -17,7 +17,7 @@ from src.retriever import Retriever, retrieve_evidence
 from src.vector_store import VectorStore
 
 
-SAMPLE_QUESTION = "Which sensors does the AUGE platform support?"
+SAMPLE_QUESTION = "What is the electoral silence period before election day?"
 
 
 def _build_test_index(tmp_path: Path) -> VectorStore:
@@ -141,7 +141,11 @@ def test_retrieve_sample_question():
     assert top["fragment"]
     assert top["retrieval_score"] > 0.0
     assert top["rerank_score"] >= 0.0
-    assert "sensor" in top["fragment"].lower() or "temperature" in top["fragment"].lower()
+    assert (
+        "silence" in top["fragment"].lower()
+        or "electoral" in top["fragment"].lower()
+        or "72" in top["fragment"]
+    )
 
 
 def test_create_reranker_disabled_uses_noop():

@@ -44,12 +44,13 @@ def test_output_schema_shape(monkeypatch):
     monkeypatch.setattr(
         pipeline.confidence_scorer,
         "score",
-        lambda q, answer, chunks: ConfidenceResult(
+        lambda q, answer, chunks, **kwargs: ConfidenceResult(
             confidence=0.8,
             abstained=False,
             reason="sufficient_evidence",
         ),
     )
+    monkeypatch.setattr("src.rag_pipeline.try_tabular_answer", lambda q, p: None)
 
     result = pipeline.ask("Which sensors are supported?")
     payload = result.to_dict()

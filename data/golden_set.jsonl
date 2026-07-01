@@ -1,3 +1,5 @@
+# Golden evaluation set (26 examples) — see golden_seed.jsonl (identical content)
+
 {"id":"q001","pregunta":"What is the electoral silence period before election day?","respuesta_referencia":"The electoral silence period is the final 72 hours before election day.","fuentes":["LEY-2021-014 Art. 31","CAL-2026-001 Sec. 3"],"tipo":"factual","respondible":true}
 {"id":"q002","pregunta":"Can biometric data collected by Valdorian public institutions be stored in foreign cloud infrastructure?","respuesta_referencia":"No. Biometric data collected by public institutions must remain physically and logically inside the Republic of Valdoria and may not be stored, processed, backed up, or mirrored in foreign cloud infrastructure.","fuentes":["LEY-2022-008 Art. 18"],"tipo":"factual","respondible":true}
 {"id":"q003","pregunta":"Which region had the lowest turnout in 2025, and what was the turnout percentage?","respuesta_referencia":"West Region had the lowest turnout in 2025 at 49%.","fuentes":["REP-2026-003 Sec. 2","historical_results.csv"],"tipo":"tabular","respondible":true}

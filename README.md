@@ -160,7 +160,8 @@ This will:
 |------|-------------|
 | `data/documents/` | 9 Valdoria laws, policies, and reports |
 | `data/historical_results.csv` | Regional turnout and budget metrics (2021–2025) |
-| `data/golden_seed.jsonl` | 6 evaluation questions (Spanish field names supported) |
+| `data/golden_set.jsonl` | 26 evaluation questions (factual, tabular, unanswerable) |
+| `data/golden_seed.jsonl` | Alias of golden_set (same content) |
 | `data/quick_test_questions.md` | Manual smoke-test prompts |
 | `data/README_data.md` | Dataset schema and notes |
 
@@ -240,7 +241,7 @@ Health check: `GET http://localhost:8000/health`
 
 ```bash
 # Full golden-set evaluation
-python eval/evaluate.py --golden-set data/golden_seed.jsonl
+python eval/evaluate.py --golden-set data/golden_set.jsonl
 
 # Before/after reranking experiment
 python eval/experiment.py
@@ -282,10 +283,11 @@ python -m src.cli preview-chunks
 - **No hybrid retrieval** — dense-only; exact keyword/SKU matches may be missed.
 - **Confidence heuristics** — not fully calibrated; thresholds may still over-abstain on edge cases.
 - **Synchronous API** — no streaming; long generations block the request.
-- **Golden set size** — 6 seed examples; extend to 20–30 for stronger statistical conclusions.
+- **Golden set size** — 26 examples in `data/golden_set.jsonl`; extend further for production CI gates.
 - **Docker** — requires a host with a running Docker daemon; nested dev containers without systemd cannot run `docker compose` locally.
 
-See `REPORT.md` and `TRADEOFFS.md` for design rationale and v2 roadmap.
+See `REPORT.md` and `TRADEOFFS.md` for design rationale and v2 roadmap.  
+See `TEST_PROJECT_REPORT.md` for the submission report mapped to the official scoring criteria.
 
 ---
 
@@ -307,6 +309,7 @@ Dockerfile
 docker-compose.yml
 README.md
 REPORT.md
+TEST_PROJECT_REPORT.md
 TRADEOFFS.md
 ```
 

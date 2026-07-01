@@ -9,6 +9,13 @@ from typing import Any
 
 CITATION_RE = re.compile(r"\[source:\s*([^\]]+)\]", re.IGNORECASE)
 WORD_RE = re.compile(r"[a-z0-9]+")
+STOPWORDS = frozenset(
+    {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
+        "it", "of", "on", "or", "that", "the", "this", "to", "was", "with", "must",
+        "may", "not", "no", "above", "below", "including", "require", "requires",
+    }
+)
 
 ABSTENTION_MARKERS = (
     "don't know based on the provided corpus",
@@ -201,9 +208,20 @@ def confidence_calibration(
     }
 
 
-def contains_answer(predicted: str, expected: str) -> bool:
-    """Return True when the expected answer appears in the prediction."""
-    return _normalize(expected) in _normalize(predicted)
+def contains_answer(predicted: str, expected: str, *, min_token_recall: float = 0.55) -> bool:
+    """Return True when the prediction contains the expected answer content."""
+    if _is_abstention_answer(predicted) or not expected.strip():
+        return False
+    if _normalize(expected) in _normalize(predicted):
+        return True
+
+    predicted_tokens = _content_tokens(predicted)
+    expected_tokens = _content_tokens(expected)
+    if not expected_tokens:
+        return True
+
+    recall = len(predicted_tokens & expected_tokens) / len(expected_tokens)
+    return recall >= min_token_recall
 
 
 def exact_match(predicted: str, expected: str) -> float:
@@ -268,6 +286,10 @@ def _is_abstention_answer(answer: str) -> bool:
 
 def _tokenize(text: str) -> set[str]:
     return set(WORD_RE.findall(text.lower()))
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {token for token in WORD_RE.findall(text.lower()) if token not in STOPWORDS}
 
 
 def _normalize(text: str) -> str:

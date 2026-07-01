@@ -161,12 +161,12 @@ def test_summarize_loaded_data_project_corpus():
     root = Path(__file__).resolve().parent.parent
     summary = summarize_loaded_data(
         documents_dir=root / "data" / "documents",
-        golden_seed_path=root / "data" / "golden_seed.jsonl",
+        golden_seed_path=root / "data" / "golden_set.jsonl",
         historical_results_path=root / "data" / "historical_results.csv",
     )
     assert summary["documents"] == 9
     assert summary["records"] >= 9
-    assert summary["golden_seed_examples"] == 6
+    assert summary["golden_seed_examples"] == 26
     assert summary["historical_result_runs"] == 20
 
 

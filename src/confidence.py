@@ -153,6 +153,8 @@ class ConfidenceScorer:
         query: str,
         answer: str,
         chunks: list[RetrievedChunk],
+        *,
+        structured_citations: bool = False,
     ) -> ConfidenceResult:
         """Compute confidence and abstention from evidence signals."""
         _ = query  # reserved for future entailment checks
@@ -198,6 +200,8 @@ class ConfidenceScorer:
             top_rerank=top_rerank,
             has_citations=has_citations,
             citation_support=citation_support,
+            chunks=chunks,
+            structured_citations=structured_citations,
         )
         if hard_reason:
             confidence = _weighted_confidence(signals)
@@ -237,6 +241,8 @@ class ConfidenceScorer:
         top_rerank: float,
         has_citations: bool,
         citation_support: float,
+        chunks: list[RetrievedChunk],
+        structured_citations: bool = False,
     ) -> str | None:
         if top_retrieval < self.settings.min_retrieval_score:
             return f"weak_top_retrieval_score_{top_retrieval:.2f}"
@@ -250,10 +256,15 @@ class ConfidenceScorer:
         if _is_abstention_answer(answer):
             return "model_expressed_uncertainty"
 
-        if self.settings.require_citations and not has_citations:
+        if self.settings.require_citations and not has_citations and not structured_citations:
             return "answer_missing_citations"
 
         if has_citations and citation_support < self.settings.min_citation_support:
+            inline = [source.strip() for source in CITATION_RE.findall(answer)]
+            if inline and all(_source_in_chunks(source, chunks) for source in inline):
+                return None
+            if structured_citations:
+                return None
             return "answer_not_supported_by_citations"
 
         return None

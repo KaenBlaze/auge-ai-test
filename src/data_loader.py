@@ -164,7 +164,7 @@ def load_golden_seed(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as handle:
         for line_no, line in enumerate(handle, start=1):
             stripped = line.strip()
-            if not stripped:
+            if not stripped or stripped.startswith("#"):
                 continue
             try:
                 examples.append(normalize_golden_example(json.loads(stripped)))
