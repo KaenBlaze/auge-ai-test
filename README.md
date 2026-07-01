@@ -8,7 +8,9 @@ No paid external APIs. All embeddings, retrieval, reranking, and generation run 
 
 ## Project Overview
 
-The system ingests Markdown documents, chunks them with heading/paragraph awareness, embeds them with sentence-transformers, indexes them in FAISS, and answers questions via a configurable local LLM (Ollama, vLLM, or Hugging Face Transformers).
+The system ingests Markdown documents and tabular CSV data, chunks them with heading/paragraph awareness, embeds them with sentence-transformers, indexes them in FAISS, and answers questions via a configurable local LLM (Ollama, vLLM, or Hugging Face Transformers).
+
+The bundled **Republic of Valdoria** synthetic corpus includes electoral law, campaign finance rules, budget reports, procurement policy, and regional metrics (`historical_results.csv`, 2021–2025).
 
 Every answer includes:
 - Source citations (`document`, `source_id`, `fragment`)
@@ -23,6 +25,7 @@ An evaluation harness measures retrieval quality, citation correctness, hallucin
 
 ```
 data/documents/*.md
+data/historical_results.csv
         │
         ▼
   data_loader ──► chunking (heading/paragraph aware, tiktoken-sized)
@@ -82,7 +85,7 @@ cp .env.example .env
 
 # Local LLM via Ollama (default backend)
 # Install Ollama: https://ollama.ai
-ollama pull qwen2.5-7b
+ollama pull qwen2.5:7b
 ```
 
 Optional backends (set in `.env`):
@@ -143,44 +146,74 @@ python scripts/build_index.py
 
 This will:
 1. Load Markdown from `data/documents/`
-2. Chunk with heading/paragraph awareness
-3. Embed with `BAAI/bge-small-en-v1.5`
-4. Build and save FAISS index to `storage/faiss_index/index.faiss`
-5. Save chunk metadata to `storage/faiss_index/metadata.json`
+2. Load tabular rows from `data/historical_results.csv`
+3. Chunk with heading/paragraph awareness
+4. Embed with `BAAI/bge-small-en-v1.5`
+5. Build and save FAISS index to `storage/faiss_index/index.faiss`
+6. Save chunk metadata to `storage/faiss_index/metadata.json`
+
+---
+
+## Dataset
+
+| Path | Description |
+|------|-------------|
+| `data/documents/` | 9 Valdoria laws, policies, and reports |
+| `data/historical_results.csv` | Regional turnout and budget metrics (2021–2025) |
+| `data/golden_seed.jsonl` | 6 evaluation questions (Spanish field names supported) |
+| `data/quick_test_questions.md` | Manual smoke-test prompts |
+| `data/README_data.md` | Dataset schema and notes |
+
+See `data/quick_test_questions.md` for answerable vs should-abstain examples.
 
 ---
 
 ## Ask One Question
 
 ```bash
-python scripts/run_question.py "What sensors does the AUGE platform support?"
+python scripts/run_question.py "What is the electoral silence period before election day?"
 ```
 
 JSON output:
 
 ```bash
-python scripts/run_question.py "What is the campaign spending reporting deadline?" --json
+python scripts/run_question.py "Which region had the lowest turnout in 2025?" --json
 ```
 
 CLI alternative:
 
 ```bash
-python -m src.cli ask "What is the primary purpose of the AUGE monitoring system?" --json
+python -m src.cli ask "What disclosure is required for campaign expenses above V\$10,000?" --json
 ```
 
 Example response schema:
 
 ```json
 {
-  "question": "...",
-  "answer": "...",
+  "question": "Which region had the lowest turnout in 2025?",
+  "answer": "West Region had the lowest turnout in 2025 at 49%.",
   "citations": [
-    {"document": "sensor_catalog.md", "source_id": "sensor_catalog", "fragment": "..."}
+    {
+      "document": "REP-2026-003_Turnout_and_Service_Report.md",
+      "source_id": "REP-2026-003",
+      "fragment": "..."
+    },
+    {
+      "document": "historical_results.csv",
+      "source_id": "historical_results",
+      "fragment": "..."
+    }
   ],
-  "confidence": 0.72,
+  "confidence": 0.77,
   "abstained": false,
   "reason": "sufficient_evidence"
 }
+```
+
+Unanswerable questions (not in the corpus) should abstain, for example:
+
+```bash
+python scripts/run_question.py "Who won the 2026 presidential election in Valdoria?" --json
 ```
 
 ---
@@ -196,7 +229,7 @@ python -m src.cli serve
 ```bash
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
-  -d '{"question": "Which sensors does the AUGE platform support?"}'
+  -d '{"question": "What is the electoral silence period before election day?"}'
 ```
 
 Health check: `GET http://localhost:8000/health`
@@ -235,7 +268,7 @@ python -m src.cli preview-chunks
 |-----------|---------|-------|
 | **Embedding model** | `BAAI/bge-small-en-v1.5` | 384-dim, CPU-friendly; falls back to `all-MiniLM-L6-v2` |
 | **Reranker** | `BAAI/bge-reranker-base` | Falls back to `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| **LLM** | `qwen2.5-7b` via Ollama | Also supports vLLM and Transformers |
+| **LLM** | `qwen2.5:7b` via Ollama | Also supports vLLM and Transformers |
 | **Vector store** | FAISS (`IndexFlatIP`) | Persistent at `storage/faiss_index/` |
 | **Hardware tested** | Linux x86_64, CPU-only | Embeddings + reranker on CPU; Ollama for generation |
 
@@ -243,13 +276,14 @@ python -m src.cli preview-chunks
 
 ## Known Limitations
 
-- **Tiny demo corpus** (2 documents, 9 chunks) — metrics saturate quickly; not representative of production scale.
+- **Demo corpus size** (9 documents + CSV, ~39 chunks) — useful for evaluation design, not production scale.
 - **CPU inference** — embedding and reranking are slow on large corpora without GPU.
-- **Citation correctness** depends on the LLM following `[source: <document>]` format; strict `REQUIRE_CITATIONS=true` causes false abstention when the model omits inline citations.
+- **Citation correctness** depends on the LLM following `[source: <document>]` format; fragment grounding is used as a fallback when inline citations are missing.
 - **No hybrid retrieval** — dense-only; exact keyword/SKU matches may be missed.
-- **Confidence heuristics** — not fully calibrated; tuned thresholds can over-abstain on answerable questions.
+- **Confidence heuristics** — not fully calibrated; thresholds may still over-abstain on edge cases.
 - **Synchronous API** — no streaming; long generations block the request.
-- **Golden set size** — 3 examples; statistical conclusions require a larger eval set.
+- **Golden set size** — 6 seed examples; extend to 20–30 for stronger statistical conclusions.
+- **Docker** — requires a host with a running Docker daemon; nested dev containers without systemd cannot run `docker compose` locally.
 
 See `REPORT.md` and `TRADEOFFS.md` for design rationale and v2 roadmap.
 
@@ -261,10 +295,16 @@ See `REPORT.md` and `TRADEOFFS.md` for design rationale and v2 roadmap.
 src/                  # Core RAG pipeline
 eval/                 # Evaluation harness and experiment
 scripts/              # build_index, run_question, inspect_data, preview_chunks
-data/documents/       # Synthetic Markdown corpus
+docker/               # Container entrypoint
+data/documents/       # Valdoria Markdown corpus (9 files)
+data/historical_results.csv
 data/golden_seed.jsonl
+data/quick_test_questions.md
+data/README_data.md
 storage/faiss_index/  # Generated FAISS index + metadata (gitignored)
-tests/                # 67 unit/integration tests
+tests/                # Unit/integration tests
+Dockerfile
+docker-compose.yml
 README.md
 REPORT.md
 TRADEOFFS.md
